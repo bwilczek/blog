@@ -3,7 +3,7 @@ layout: post
 title:  "Introducing WatirPump"
 date:   2018-10-07 09:05:15 +0200
 excerpt: Proudly presenting a new, fresh look at Page Object Model for Ruby and Watir
-categories: watir_pump
+categories:
 ---
 
 So one could ask: "Why yet another PageObject library?". After all, there are some very decent gems out there already. This is true. Each of the existing libraries offers certain unique features, but none of them has all. Well, WatirPump - the new kid on the block, has the ambition to make an exception. Let's take a look at it and find out.
@@ -19,7 +19,7 @@ For this article, let's try to use as little English as possible. Lets let the c
 
 Let's test a page with multiple ToDo lists. This example scenario checks if addition and removal of list items work properly.
 
-![Example page with multiple ToDo lists](/assets/watir_pump/todo_lists.png)
+![Example page with multiple ToDo lists](/blog/assets/watir_pump/todo_lists.png)
 
 Having properly modeled the ToDoListsPage class the spec will look like this:
 
