@@ -17,7 +17,7 @@ For this article, let's try to use as little English as possible. Lets let the c
 
 # Example spec
 
-Let's test a page with multiple ToDo lists. This example scenario checks if addition and removal of list items work properly.
+Let's test a [page with multiple ToDo lists](https://bwilczek.github.io/watir_pump_tutorial/todo_lists.html). This example scenario checks if addition and removal of list items work properly.
 
 ![Example page with multiple ToDo lists](/blog/assets/watir_pump/todo_lists.png)
 
