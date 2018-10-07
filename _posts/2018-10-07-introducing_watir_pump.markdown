@@ -21,7 +21,7 @@ Let's test a page with multiple ToDo lists. This example scenario checks if addi
 
 ![Example page with multiple ToDo lists](/blog/assets/watir_pump/todo_lists.png)
 
-Having properly modeled the ToDoListsPage class the spec will look like this:
+Having properly modeled the `ToDoListsPage` class the spec will look like this:
 
 ```ruby
 RSpec.describe ToDoListsPage do
@@ -46,7 +46,7 @@ Let's dig into the internals and learn how to build such a nice page API with Wa
 
 # ToDoList
 
-As we look at the page it is clear that the first candidate to be extracted into a reusable component is the ToDoList. It contains several elements:
+As we look at the page it is clear that the first candidate to be extracted into a reusable component is the `ToDoList`. It contains several elements:
 
 * a title
 * a text field for a name of a new item
@@ -94,7 +94,7 @@ def summary
 end
 ```
 
-See WatirPump docs to learn more about how one can declare page elements (don't forget to check out how lambdas could help here). While you read the docs please also grep for root vs browser to learn the difference
+See WatirPump [docs](https://github.com/bwilczek/watir_pump/blob/master/README.md#elements) to learn more about how one can declare page elements (don't forget to check out how lambdas could help here). While you read the docs please also grep for `root vs browser` to learn the difference.
 
 #### Concept 1: element action macros: reader, writer, clicker
 
@@ -129,7 +129,7 @@ def submit
 end
 ```
 
-See the documentation about element action macros for more details.
+See the [documentation about element action macros](https://github.com/bwilczek/watir_pump/blob/master/README.md#element-action-macros-1) for more details.
 
 #### Concept 2: components class macro
 
@@ -149,7 +149,7 @@ So to sum it up: `fill_form!(item_name: 'Pineapple')` will do `self.item_name='
 
 The more writers the component has, the more work can `fill_form` do for us.
 
-For more information about form helpers please see the docs.
+For more information about form helpers please [see the docs](https://github.com/bwilczek/watir_pump/blob/master/README.md#form-helpers).
 
 #### The extra methods: add, [], include?
 
@@ -163,7 +163,7 @@ todo_list['Pineapple'].remove
 
 #### Concept 4: query macro
 
-There is one more concept that has been employed in this example. It's a `query` class macro and more information about it can be found here.
+There is one more concept that has been employed in this example. It's a `query` class macro and more information about it can be found [here](https://github.com/bwilczek/watir_pump/blob/master/README.md#query-class-macro).
 
 # ToDoListItem
 
@@ -187,7 +187,7 @@ Both of the macros used here have been already discussed.
 
 The highest object in the model hierarchy is the `ToDoListsPage`. Its declaration doesn't differ much from the declaration of a component. The main change is the presence of the required `uri` macro invocation.
 
-Another new contstruct (macro) presented in the listing below is `decorate`. It is used to, well, decorate given method with some additional behavior. Here, the value returned by method `todo_lists` will be wrapped by an instance of a `CollectionIndexedByTitle` class. It is required to replace the default behavior of `[]` operator: from integer based (like in Array) to  string based (like in Hash). This will provide us with access to certain `ToDoLists` by their title.
+Another new contstruct (macro) presented in the listing below is `decorate`. It is used to, well, decorate given method with some additional behavior. Here, the value returned by method `todo_lists` will be wrapped by an instance of a `CollectionIndexedByTitle` class. It is required to replace the default behavior of `[]` operator: from integer based (like in `Array`) to  string based (like in `Hash`). This will provide us with access to certain `ToDoLists` by their title.
 
 ```ruby
 class ToDoListPage < WatirPump::Page
@@ -242,10 +242,10 @@ end
 
 # Summary
 
-This article showed only a few of the features that WatirPump offers to build maintainable, reusable and elegant Page Object models. For a complete guide please refer to projects README and a tutorial.
+This article showed only a few of the features that WatirPump offers to build maintainable, reusable and elegant Page Object models. For a complete guide please refer to projects [README](https://github.com/bwilczek/watir_pump/blob/master/README.md) and a [tutorial](https://github.com/bwilczek/watir_pump_tutorial).
 
 In case of ideas for improvement, found bugs or any other questions don't hesitate to:
 
-* create a pull request with your feature
-* report an issue
-* contact the author via email
+* [create a pull request](https://github.com/bwilczek/watir_pump/pulls) with your feature
+* [report an issue](https://github.com/bwilczek/watir_pump/issues)
+* [contact the author via email](mailto:bwilczek@gmail.com)
