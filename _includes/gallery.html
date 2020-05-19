@@ -1,0 +1,11 @@
+{% assign gallery = site.data.galleries[include.id] %}
+
+<div id="gallery_{{include.id}}" class="slick-carousel">
+{% for image in gallery %}
+  <div>
+    <img class="gallery" src="{{image.path_mid}}" title="{{image.label}}" />
+    <div>{{image.label}}</div>
+    <a class="full-size-download" href="{{image.path_full}}" target="_blank">pełna rozdzielczość</a>
+  </div>
+{% endfor %}
+</div>
