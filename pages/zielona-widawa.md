@@ -2,6 +2,7 @@
 permalink: /zielona-widawa/
 title: Zielona Widawa na Kowalach
 exclude: true
+layout: post
 ---
 
 # Streszczenie
