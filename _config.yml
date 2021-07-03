@@ -13,10 +13,10 @@
 # you will see them accessed via {{ site.title }}, {{ site.email }}, and so on.
 # You can create any custom variable you would like, and they will be accessible
 # in the templates via {{ site.myvariable }}.
-title: "Bartek Wilczek: code, infra & rock'n'roll"
+title: "Bartek Wilczek: the defensive midfielder of web development"
 email: bwilczek@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
-  A professional blog of Bartek Wilczek: web developer and QA engineer.
+  Some bits of code, Wrocław, travelling and other hobbies.
 baseurl: "/blog" # the subpath of your site, e.g. /blog
 url: "https://bwilczek.github.io" # the base hostname & protocol for your site, e.g. http://example.com
 twitter_username: bwilczek_eu
@@ -24,11 +24,16 @@ github_username:  bwilczek
 
 show_excerpts: true
 
+kramdown:
+  auto_ids: true
+
 # Build settings
 markdown: kramdown
 theme: minima
 plugins:
   - jekyll-feed
+  - jemoji
+  - premonition
 
 # Exclude from processing.
 # The following items will not be processed, by default. Create a custom list
