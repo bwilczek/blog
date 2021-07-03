@@ -11,6 +11,8 @@ on:
 jobs:
   jekyll:
     runs-on: ubuntu-16.04
+    env:
+      BUNDLER_VERSION: 1.17.3
     steps:
     - uses: actions/checkout@v2
 
