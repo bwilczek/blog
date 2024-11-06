@@ -1,0 +1,9 @@
+img.gallery {
+  margin: 2px;
+}
+
+.full-size-download {
+  display: block;
+  font-size: 10px;
+  color: #777;
+}
