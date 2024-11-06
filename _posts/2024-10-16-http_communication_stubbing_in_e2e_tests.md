@@ -15,11 +15,11 @@ Stubbing out communication with external services is a common practice in automa
 It is pretty easy to stub requests to remote services in unit tests, where the test runner process is executing the code under test.
 There's a variety of tools that hook into the HTTP client libraries and alter their behavior in runtime, making them an important tool
 in the tester's tool belt. Ruby, Java, Python, Node, and other have their `VCR`, `sinon`, `puffing-billy`, `Betamax`, `Talkback`.
-None of these tools hover is design to provide a technology agnostic solution for a whole distributed app stack.
+None of these tools however has been designed to provide a technology agnostic solution for complete distributed app stack.
 
-For E2E testing communication stubbing is not simple because the test runner occupies a different process
-then the application under test. And this makes changing the behavior of the running app (HTTP client libs) in runtime impossible.
-Or at least very very hacky and standing in the way of E2E testing paradigm.
+For E2E testing communication stubbing is not simple because the test runner lives in a different process
+then the application under test. And this makes changing the behavior of the running app in runtime impossible.
+Or at least very, very hacky and standing in the way of E2E testing paradigm.
 
 Additionally the application under test can be multi-process itself: consider clustered HTTP server and a separate service
 for processing of background jobs. In order to provide consistent behavior of the whole stack all processes should be experiencing
@@ -31,26 +31,26 @@ The solution to this problem is making all the processes in the stack route thei
 and let this proxy perform any manipulation on the responses, as required by the test scenario.
 
 [Hoverfly](https://docs.hoverfly.io/en/latest/) is (almost) ideal tool for this purpose.
-It hooks into the HTTP requests processing seamlessly, without needing to alter the applications under test.
+It hooks itself into the HTTP requests processing seamlessly, without needing to alter the applications under test.
 
 ## Settings things up
 
 All applications involved in E2E test scenarios have to be configured to use an HTTP proxy server for external request they make.
 Setting this up can vary, depending on the libraries used.
 
-# Starting hoverfly
+# Starting Hoverfly
 
-But first things. Let's start a local instance of Hoverfly, that the other services will use:
+But first things first. Let's start a local instance of Hoverfly, that the other services will use:
 
 ```sh
 docker run --name hoverfly -d -p 8888:8888 -p 8500:8500 spectolabs/hoverfly:latest
 ```
 
-It is important to know realize where services under test run. If they run in docker containers Hoverfly container should be
-created in the same network, and refered by name `hoverfly`. If the services run on the host (locally) the correct address
+It is important to know where services under test run. If they run in docker containers Hoverfly container should be
+created in the same network, and referred by name `hoverfly`. If the services run on the host (locally) the correct address
 for Hoverfly service would be `localhost` or `127.0.0.1`.
 
-As one can see two ports are being exposed: `8500` for the actual proxy and `8888` for admin interface and REST API.
+As one can see two ports are being exposed: `8500` for the actual proxy and `8888` for the admin interface and the REST API.
 
 # Configuring proxy with env variables
 
@@ -70,14 +70,14 @@ export https_proxy=http://hoverfly:8500
 export no_proxy=localhost,127.0.0.1,hoverfly,db,web,search,other,services
 ```
 
-Most likely these would be declared in GitHub Action workflow, or `docker-compose.yml`, or `kubernetes` manifests, or whenever the stack is started.
+Most likely these would be declared in GitHub Action workflow, or `docker-compose.yml`, or `kubernetes` manifests, or wherever the stack is started.
 
 # Configuring proxy per library
 
-Some HTTP client libraries do not respect these env vars. If this is the case the configration will have to be provided in the code.
+Some HTTP client libraries do not respect these env vars. If this is the case the configuration will have to be provided in the code.
 For example `node-fetch` requires some tweaking:
 
-```javacript
+```javascript
 const fetch = require('node-fetch');
 const HttpsProxyAgent = require('https-proxy-agent');
 
@@ -112,7 +112,7 @@ It shouldn't be too hard though, as often the issue can be resolved with an envi
 ## Example workflow
 
 Once the applications are configured to use Hoverfly proxy the actual testing workflow can start.
-Before the tests can be executed the forged responses have to be prepared.
+Before the tests can be executed the responses have to be prepared.
 In Hoverfly terms a collection of request/response pairs is called a [Simulation](https://docs.hoverfly.io/en/latest/pages/keyconcepts/simulations/simulations.html).
 
 There are two ways of creating simulations.
@@ -120,10 +120,10 @@ There are two ways of creating simulations.
 # Recording a simulation
 
 Hoverfly can work in several [modes](https://docs.hoverfly.io/en/latest/pages/keyconcepts/modes/modes.html).
-For this artical we care only about `capture` and `simulate` modes. First for recording real traffic,
+For this article we care only about `capture` and `simulate` modes. First for recording real traffic,
 second for serving the pre-recorder responses, not allowing any connections to real systems.
 
-The are several ways to set the mode to the required value. First is using the admin panel at http://localhost:8888.
+The are several ways to set the mode to the required value. First is using the admin panel at `http://localhost:8888`.
 
 Another way is using CURL and REST API:
 
@@ -141,11 +141,11 @@ await client.setMode({mode: 'capture'})
 ```
 
 After the mode has been set Hoverfly is ready to record the traffic going through it.
-It's time to let the apps under test perform their requests and be recorded.
-Typically app user (or acceptance tester, so most like you, dear reader) will just click through the functionality in question.
+It's time to let the apps under test perform their requests and let Hoverfly record them.
+Typically app user (or acceptance tester, so most like you, dear reader) will just one the app UI and click through the functionality in question.
 
 When the scenario is completed it's time to save the recorded traffic to a file, so that it could be reused in the future.
-This can be achived it two ways.
+This can be achieved it two ways.
 
 Using CURL and REST API:
 ```sh
@@ -205,7 +205,7 @@ curl -X PUT -H "Content-Type: application/json" -d '{"mode": "capture"}' http://
 await client.setMode({mode: 'simulate'})
 ```
 
-Uplading the simulation JSON isn't hard as well:
+Uploading the simulation JSON isn't hard as well:
 
 ```
 # curl:
@@ -221,30 +221,112 @@ const sim = buildSimulation([pair])
 await client.uploadSimulation(sim)
 ```
 
-# Journal
+# Middleware and Journal
 
-asd
+Hoverfly comes with two more handy tools that can provide more flexibility to the test framework.
+First one is [middleware](https://docs.hoverfly.io/en/latest/pages/keyconcepts/middleware.html),
+a mechanism that can modify the responses dynamically, make requests to real systems, trigger callback webhooks
+or perform any logic that could be implemented inside a simple HTTP application.
+This topic is so broad and project specific that it goes far beyond the scope of this article.
+It's being mentioned here so that you know that if there's something more sophisticated that your
+stubbed communications needs to do, middleware can help.
 
-# Middleware
-
-asd
+The other concept is Journal, which is basically a registry of performed HTTP requests that went through Hoverfly.
+It's essential for making assertions like *"Expect that payment provider has been queried for pending transactions"*.
+More on this in the example below.
 
 ## Example workflow with hoverfly-client
 
+Let's demonstrate the features of Hoverfly in an example `jest` test:
 
-asd
+```typescript
+import { describe, expect, test } from '@jest/globals'
+import {
+  buildSimulation,
+  ResponseData,
+  RequestMatcher,
+  saveSimulationToFile,
+  Client
+} from "@bwilczek/hoverfly-client"
+
+const client = new Client("http://hoverfly:8888")
+
+describe("Fetch invoice", () => {
+  beforeEach(async () => {
+    await client.purgeSimulation()
+    await client.setMode({mode: 'simulate'})
+    await client.purgeJournal()
+    // upload some default requests/responses that should be always active, for example authenthication
+    await client.uploadSimulation(buildSimulationFromFile('default_traffic.json'))
+  })
+
+  test('sufficient balance', async () => {
+    // append simulation for this scenario to the one already present in Hoverfly
+    await client.appendSimulation(buildSimulationFromFile('payment_sufficient_balance.json'))
+
+    // do some actions in the UI, that will make the app under test perform a request to payment provider
+    await browser.submitPaymentButton.click()
+
+    // assert that the backend really performed a request to the payment provider
+    const paymentsJournal = await client.searchJournal({request: {destination: [{matcher: "exact", value: "payment.provider"}]}})
+    expect(paymentsJournal.journal.length).toBe(1)
+  })
+})
+```
 
 ## Conclusions
 
-asd
+Stubbing HTTP communication in a distributed, multi-process system is not only possible, but it's also not that hard.
+HTTP proxy is the right tool for this purpose, and Hoverfly provides just the right features:
 
-## Oh, but why almost ideal?
+* Flexible request matchers
+* Middleware for custom logic
+* Support for SSL
+* Journal for tracking of the processed requests
+* JSON REST API for easy configuration
+* Simulating latency and outages
 
-As great as `hoverfly` is it comes with some caveats:
+As demonstrated in this article, introduction of Hoverfly to any app stack is easy.
+With minimal or no changes to the code it opens the apps for testing of
+use cases not achievable with requests to real external services.
 
-* `destination`, `no_proxy` and direct requests
-* not every app respects `http_proxy`
-* not every app respects default location of SSL certificates
-* default certificate does not work well with time traveling
-* one, huge simulation, cannot upload/delete single pairs
-* JSON format holding JSON responses as a single line, often encoded. Hard to tamper with.
+## Caveats
+
+As great as Hoverfly is it comes with a few caveats:
+
+**`destination`, `no_proxy` and direct requests**
+
+Switching Hoverfly on and off dynamically for certain URLs is hard. `no_proxy` variable provides a static list,
+while [destination](https://docs.hoverfly.io/en/latest/pages/keyconcepts/destinationfiltering.html)
+filtering relies on a whitelist regular expression.
+Implementation of a test suite that runs some scenarios against real payment provider and some against a simulated one
+is tricky and requires some fancy logic in a stateful middleware. It's doable though.
+
+**not every lib respects `http_proxy`**
+
+As described above: some HTTP libraries won't respect the standard ENV variables
+and require changes to client initialization.
+
+**not every lib respects default location of SSL certificates**
+
+As described above: some HTTP libraries won't trust all system's certificates
+and require changes to client initialization.
+
+**default certificate does not work well with time traveling**
+
+Scenarios that involve time traveling might not work as expected, as the SSL certificate shipped 
+with Hoverfly has more "present" validity period. A custom certificate, valid +/- 30 years from now
+could be generated and used instead.
+
+**one, huge simulation, cannot upload/delete single pairs**
+
+REST API operates (upload/download) on a whole simulation - not individual request/response pairs.
+Adding or subtracting responses requires some extra coding, fortunately it can be abstracted away in a
+client library, like the one used in the examples in this article.
+
+**JSON format of simulations**
+
+Pretty often request or response payload is also in JSON format, what makes manual changes to the simulation files hard.
+JSON does not support line splitting and the JSON content is at easiest case escaped and 
+stored in a very long line. In a harder case it can be `gzip` or `brotli` compressed and then serialized in `base64`.
+Of course editing such payload is still possible, but a bit harder then if a different format was used.
