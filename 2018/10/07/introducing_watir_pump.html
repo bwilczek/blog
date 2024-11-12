@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.7.1 -->
+<title>Introducing WatirPump | Bartek Wilczek: the defensive midfielder of web development</title>
+<meta name="generator" content="Jekyll v4.2.0" />
+<meta property="og:title" content="Introducing WatirPump" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Proudly presenting a new, fresh look at Page Object Model for Ruby and Watir" />
+<meta property="og:description" content="Proudly presenting a new, fresh look at Page Object Model for Ruby and Watir" />
+<link rel="canonical" href="https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html" />
+<meta property="og:url" content="https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html" />
+<meta property="og:site_name" content="Bartek Wilczek: the defensive midfielder of web development" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2018-10-07T07:05:15+00:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Introducing WatirPump" />
+<script type="application/ld+json">
+{"description":"Proudly presenting a new, fresh look at Page Object Model for Ruby and Watir","url":"https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html","@type":"BlogPosting","headline":"Introducing WatirPump","dateModified":"2018-10-07T07:05:15+00:00","datePublished":"2018-10-07T07:05:15+00:00","mainEntityOfPage":{"@type":"WebPage","@id":"https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html"},"@context":"https://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/blog/assets/main.css">
+  <link rel="stylesheet" href="/blog/assets/css/blog.css">
+  <link rel="stylesheet" href="/blog/assets/css/premonition.css">
+  <link rel="stylesheet" href="/blog/assets/css/slick.css">
+  <link rel="stylesheet" href="/blog/assets/css/slick-theme.css"><link type="application/atom+xml" rel="alternate" href="https://bwilczek.github.io/blog/feed.xml" title="Bartek Wilczek: the defensive midfielder of web development" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/blog/">Bartek Wilczek: the defensive midfielder of web development</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/blog/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Introducing WatirPump</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2018-10-07T07:05:15+00:00" itemprop="datePublished">Oct 7, 2018
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>So one could ask: “Why yet another PageObject library?”. After all, there are some very decent gems out there already. This is true. Each of the existing libraries offers certain unique features, but none of them has all. Well, WatirPump - the new kid on the block, has the ambition to make an exception. Let’s take a look at it and find out.</p>
+
+<h1 id="introduction">Introduction</h1>
+<p>It’s never easy describing code using a natural language. Especially if it’s a foreign one ;) For the in-depth explanation about what <code class="language-plaintext highlighter-rouge">WatirPump</code> can do and how it does it I highly recommend reading its <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md">README</a>.</p>
+
+<p>There is also a series of specs that demonstrate certain features of the library in a form of a <a href="https://github.com/bwilczek/watir_pump_tutorial">tutorial</a>.</p>
+
+<p>For this article, let’s try to use as little English as possible. Lets let the code speak for itself.</p>
+
+<h1 id="example-spec">Example spec</h1>
+
+<p>Let’s test a <a href="https://bwilczek.github.io/watir_pump_tutorial/todo_lists.html">page with multiple ToDo lists</a>. This example scenario checks if addition and removal of list items work properly.</p>
+
+<p><img src="/blog/assets/watir_pump/todo_lists.png" alt="Example page with multiple ToDo lists" /></p>
+
+<p>Having properly modeled the <code class="language-plaintext highlighter-rouge">ToDoListsPage</code> class the spec will look like this:</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="no">RSpec</span><span class="p">.</span><span class="nf">describe</span> <span class="no">ToDoListsPage</span> <span class="k">do</span>
+  <span class="n">it</span> <span class="s1">'Adds and removes items'</span> <span class="k">do</span>
+    <span class="no">ToDoListsPage</span><span class="p">.</span><span class="nf">open</span> <span class="k">do</span>
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">].</span><span class="nf">add</span><span class="p">(</span><span class="s1">'Pineapple'</span><span class="p">)</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">]).</span><span class="nf">to</span> <span class="kp">include</span> <span class="s1">'Pineapple'</span>
+
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Work'</span><span class="p">].</span><span class="nf">add</span><span class="p">(</span><span class="s1">'Read RubyWeekly'</span><span class="p">)</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Work'</span><span class="p">]).</span><span class="nf">to</span> <span class="kp">include</span> <span class="s1">'Read RubyWeekly'</span>
+
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">][</span><span class="s1">'Bread'</span><span class="p">].</span><span class="nf">remove</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">]).</span><span class="nf">not_to</span> <span class="kp">include</span> <span class="s1">'Bread'</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<p>Pretty neat, right?</p>
+
+<p>Let’s dig into the internals and learn how to build such a nice page API with WatirPump.</p>
+
+<h1 id="todolist">ToDoList</h1>
+
+<p>As we look at the page it is clear that the first candidate to be extracted into a reusable component is the <code class="language-plaintext highlighter-rouge">ToDoList</code>. It contains several elements:</p>
+
+<ul>
+  <li>a title</li>
+  <li>a text field for a name of a new item</li>
+  <li>a button that adds the new item of given name</li>
+  <li>a list of the existing list items</li>
+</ul>
+
+<p>Let’s try to represent this component in a code:</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">ToDoList</span> <span class="o">&lt;</span> <span class="no">WatirPump</span><span class="o">::</span><span class="no">Component</span>
+  <span class="c1"># Let's use some WatirPump class macros (explained below)</span>
+  <span class="n">div_reader</span> <span class="ss">:title</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'title'</span>
+  <span class="n">text_field_writer</span> <span class="ss">:item_name</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'new_item'</span>
+  <span class="n">button_clicker</span> <span class="ss">:submit</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'add'</span>
+  <span class="n">components</span> <span class="ss">:items</span><span class="p">,</span> <span class="no">ToDoListItem</span><span class="p">,</span> <span class="ss">:lis</span>
+  <span class="n">query</span> <span class="ss">:values</span><span class="p">,</span> <span class="o">-&gt;</span> <span class="p">{</span> <span class="n">items</span><span class="p">.</span><span class="nf">map</span><span class="p">(</span><span class="o">&amp;</span><span class="ss">:label</span><span class="p">)</span> <span class="p">}</span>
+
+  <span class="c1"># and some extra methods to make the spec look more natural</span>
+  <span class="k">def</span> <span class="nf">[]</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+    <span class="n">items</span><span class="p">.</span><span class="nf">find</span> <span class="p">{</span> <span class="o">|</span><span class="n">i</span><span class="o">|</span> <span class="n">i</span><span class="p">.</span><span class="nf">label</span> <span class="o">==</span> <span class="n">label</span> <span class="p">}</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">add</span><span class="p">(</span><span class="n">item_name</span><span class="p">)</span>
+    <span class="n">fill_form!</span><span class="p">(</span><span class="ss">item_name: </span><span class="n">item_name</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">include?</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+    <span class="o">!</span><span class="nb">self</span><span class="p">[</span><span class="n">item</span><span class="p">].</span><span class="nf">nil?</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<p>Looks intuitive, however, there are some concepts that might require a few words of explanation.</p>
+
+<h4 id="concept-0-class-macros-some-would-call-it-a-dsl">Concept 0: class macros (some would call it a DSL)</h4>
+
+<p>Classes that inherit from <code class="language-plaintext highlighter-rouge">WatirPump::Page</code> or <code class="language-plaintext highlighter-rouge">WatirPump::Component</code> gain access to a set of powerful class macros that (behind the scenes) generate methods which interact with the webpage. For example, each DOM element can be declared with its own class macro. Just like in plain watir code.</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">p</span> <span class="ss">:summary</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'summary'</span>
+
+<span class="c1"># is a shorthand for:</span>
+<span class="k">def</span> <span class="nf">summary</span>
+  <span class="n">root</span><span class="p">.</span><span class="nf">p</span><span class="p">(</span><span class="ss">role: </span><span class="s1">'summary'</span><span class="p">)</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<p>See WatirPump <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md#elements">docs</a> to learn more about how one can declare page elements (don’t forget to check out how lambdas could help here). While you read the docs please also grep for <code class="language-plaintext highlighter-rouge">root vs browser</code> to learn the difference.</p>
+
+<h4 id="concept-1-element-action-macros-reader-writer-clicker">Concept 1: element action macros: reader, writer, clicker</h4>
+
+<p>It happens quite often, that there is no point in declaring a “plain” HTML element in the page class. After all an abstract DOM node is rather useless from the perspective of a functional test API. What matters, however, is what the user could do with it. And the user usually needs to perform a certain action:</p>
+
+<ul>
+  <li>read the value of the element</li>
+  <li>write a new value to the element</li>
+  <li>click the element</li>
+</ul>
+
+<p>This is where element action class macros come in: they generate methods that perform actions on the element with given locator.</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">div_reader</span> <span class="ss">:title</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'title'</span>
+
+<span class="c1"># is a shorthand for:</span>
+<span class="k">def</span> <span class="nf">title</span>
+  <span class="n">root</span><span class="p">.</span><span class="nf">div</span><span class="p">(</span><span class="ss">role: </span><span class="s1">'title'</span><span class="p">).</span><span class="nf">text</span>
+<span class="k">end</span>
+
+<span class="n">text_field_writer</span> <span class="ss">:item_name</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'new_item'</span>
+
+<span class="c1"># is a shorthand for:</span>
+<span class="k">def</span> <span class="nf">item_name</span><span class="o">=</span><span class="p">(</span><span class="n">val</span><span class="p">)</span> <span class="c1"># mind the '=' !</span>
+  <span class="n">root</span><span class="p">.</span><span class="nf">text_field</span><span class="p">(</span><span class="ss">role: </span><span class="s1">'new_item'</span><span class="p">).</span><span class="nf">set</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+<span class="k">end</span>
+
+<span class="n">button_clicker</span> <span class="ss">:submit</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'add'</span>
+
+<span class="c1"># is a shorthand for</span>
+<span class="k">def</span> <span class="nf">submit</span>
+  <span class="n">root</span><span class="p">.</span><span class="nf">button</span><span class="p">(</span><span class="ss">role: </span><span class="s1">'add'</span><span class="p">).</span><span class="nf">click</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<p>See the <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md#element-action-macros-1">documentation about element action macros</a> for more details.</p>
+
+<h4 id="concept-2-components-class-macro">Concept 2: components class macro</h4>
+
+<p>Declares a collection of components of given class that are located within the current component using the given locator.</p>
+
+<p>The line below declares a ToDoListItem component instance at every li element</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">components</span> <span class="ss">:items</span><span class="p">,</span> <span class="no">ToDoListItem</span><span class="p">,</span> <span class="ss">:lis</span>
+</code></pre></div></div>
+
+<h4 id="concept-3-fill_form">Concept 3: fill_form!</h4>
+
+<p>Instance method <code class="language-plaintext highlighter-rouge">fill_form</code> is a fast way to invoke all writers declared for the given component. In our case there is only one: <code class="language-plaintext highlighter-rouge">item_name=</code>. <code class="language-plaintext highlighter-rouge">fill_form</code> accepts a hash of writer method names and values for them. If our component contains a <code class="language-plaintext highlighter-rouge">submit</code> method <code class="language-plaintext highlighter-rouge">fill_form!</code> (notice the !) will try to invoke it after all writers are executed.</p>
+
+<p>So to sum it up: <code class="language-plaintext highlighter-rouge">fill_form!(item_name: 'Pineapple')</code> will do <code class="language-plaintext highlighter-rouge">self.item_name='Pineapple' ; submit</code></p>
+
+<p>The more writers the component has, the more work can <code class="language-plaintext highlighter-rouge">fill_form</code> do for us.</p>
+
+<p>For more information about form helpers please <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md#form-helpers">see the docs</a>.</p>
+
+<h4 id="the-extra-methods-add--include">The extra methods: add, [], include?</h4>
+
+<p>These are rather self-explanatory. They are here to let us write more expressive code. Like this:</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">todo_list</span><span class="p">.</span><span class="nf">add</span><span class="p">(</span><span class="s1">'Pineapple'</span><span class="p">)</span>
+<span class="n">todo_list</span><span class="p">.</span><span class="nf">include?</span> <span class="s1">'Pineapple'</span>
+<span class="n">todo_list</span><span class="p">[</span><span class="s1">'Pineapple'</span><span class="p">].</span><span class="nf">remove</span>
+</code></pre></div></div>
+
+<h4 id="concept-4-query-macro">Concept 4: query macro</h4>
+
+<p>There is one more concept that has been employed in this example. It’s a <code class="language-plaintext highlighter-rouge">query</code> class macro and more information about it can be found <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md#query-class-macro">here</a>.</p>
+
+<h1 id="todolistitem">ToDoListItem</h1>
+
+<p>An item consists of two elements:</p>
+
+<ul>
+  <li>a label</li>
+  <li>a link to remove the item</li>
+</ul>
+
+<p>When represented as a code they would look like this:</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">ToDoListItem</span> <span class="o">&lt;</span> <span class="no">WatirPump</span><span class="o">::</span><span class="no">Component</span>
+  <span class="n">link_clicker</span> <span class="ss">:remove</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'rm'</span>
+  <span class="n">span_reader</span> <span class="ss">:label</span><span class="p">,</span> <span class="ss">role: </span><span class="s1">'name'</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<p>Both of the macros used here have been already discussed.</p>
+
+<h1 id="todolistspage">ToDoListsPage</h1>
+
+<p>The highest object in the model hierarchy is the <code class="language-plaintext highlighter-rouge">ToDoListsPage</code>. Its declaration doesn’t differ much from the declaration of a component. The main change is the presence of the required <code class="language-plaintext highlighter-rouge">uri</code> macro invocation.</p>
+
+<p>Another new contstruct (macro) presented in the listing below is <code class="language-plaintext highlighter-rouge">decorate</code>. It is used to, well, decorate given method with some additional behavior. Here, the value returned by method <code class="language-plaintext highlighter-rouge">todo_lists</code> will be wrapped by an instance of a <code class="language-plaintext highlighter-rouge">CollectionIndexedByTitle</code> class. It is required to replace the default behavior of <code class="language-plaintext highlighter-rouge">[]</code> operator: from integer based (like in <code class="language-plaintext highlighter-rouge">Array</code>) to  string based (like in <code class="language-plaintext highlighter-rouge">Hash</code>). This will provide us with access to certain <code class="language-plaintext highlighter-rouge">ToDoLists</code> by their title.</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">ToDoListPage</span> <span class="o">&lt;</span> <span class="no">WatirPump</span><span class="o">::</span><span class="no">Page</span>
+  <span class="n">uri</span> <span class="s1">'/todo_lists.html'</span>
+  <span class="n">components</span> <span class="ss">:todo_lists</span><span class="p">,</span> <span class="no">ToDoList</span><span class="p">,</span> <span class="o">-&gt;</span> <span class="p">{</span> <span class="n">root</span><span class="p">.</span><span class="nf">divs</span><span class="p">(</span><span class="ss">role: </span><span class="s1">'todo_list'</span><span class="p">)</span> <span class="p">}</span>
+  <span class="n">decorate</span> <span class="ss">:todo_lists</span><span class="p">,</span> <span class="no">CollectionIndexedByTitle</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<h1 id="collectionindexedbytitle">CollectionIndexedByTitle</h1>
+
+<p>Decorator class for the collection of <code class="language-plaintext highlighter-rouge">ToDoLists</code>. As described above, all it does is overriding the default behavior of <code class="language-plaintext highlighter-rouge">[]</code> method.</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">CollectionIndexedByTitle</span> <span class="o">&lt;</span> <span class="no">WatirPump</span><span class="o">::</span><span class="no">ComponentCollection</span>
+  <span class="k">def</span> <span class="nf">[]</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+    <span class="n">find</span> <span class="p">{</span> <span class="o">|</span><span class="n">l</span><span class="o">|</span> <span class="n">l</span><span class="p">.</span><span class="nf">title</span> <span class="o">==</span> <span class="n">title</span> <span class="p">}</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<h1 id="execution-with-rspec">Execution with rspec</h1>
+
+<p>Having the page and component classes in place let’s take another look at API exposed to rspec:</p>
+
+<div class="language-ruby highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="no">RSpec</span><span class="p">.</span><span class="nf">describe</span> <span class="no">ToDoListsPage</span> <span class="k">do</span>
+  <span class="n">it</span> <span class="s1">'Adds and removes items'</span> <span class="k">do</span>
+    <span class="c1"># open method navigates to the page</span>
+    <span class="c1"># then executes the provided block in the scope of page class singleton instance:</span>
+    <span class="c1"># e.g. todo_lists['A'] == ToDoListPage.instance.todo_lists['A']</span>
+    <span class="no">ToDoListsPage</span><span class="p">.</span><span class="nf">open</span> <span class="k">do</span>
+      <span class="c1"># todo_lists collection with decoration supports indexing with title</span>
+      <span class="c1"># add method is invoked on a ToDoList with title 'Groceries'</span>
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">].</span><span class="nf">add</span><span class="p">(</span><span class="s1">'Pineapple'</span><span class="p">)</span>
+
+      <span class="c1"># 'include?' method defined in ToDoList class</span>
+      <span class="c1"># is used by the rspec matcher 'include'</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">]).</span><span class="nf">to</span> <span class="kp">include</span> <span class="s1">'Pineapple'</span>
+
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Work'</span><span class="p">].</span><span class="nf">add</span><span class="p">(</span><span class="s1">'Read RubyWeekly'</span><span class="p">)</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Work'</span><span class="p">]).</span><span class="nf">to</span> <span class="kp">include</span> <span class="s1">'Read RubyWeekly'</span>
+
+      <span class="c1"># ToDoList supports '[]' method that is used below</span>
+      <span class="c1"># to access ToDoListItem by its label</span>
+      <span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">][</span><span class="s1">'Bread'</span><span class="p">].</span><span class="nf">remove</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">todo_lists</span><span class="p">[</span><span class="s1">'Groceries'</span><span class="p">]).</span><span class="nf">not_to</span> <span class="kp">include</span> <span class="s1">'Bread'</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre></div></div>
+
+<h1 id="summary">Summary</h1>
+
+<p>This article showed only a few of the features that WatirPump offers to build maintainable, reusable and elegant Page Object models. For a complete guide please refer to projects <a href="https://github.com/bwilczek/watir_pump/blob/master/README.md">README</a> and a <a href="https://github.com/bwilczek/watir_pump_tutorial">tutorial</a>.</p>
+
+<p>In case of ideas for improvement, found bugs or any other questions don’t hesitate to:</p>
+
+<ul>
+  <li><a href="https://github.com/bwilczek/watir_pump/pulls">create a pull request</a> with your feature</li>
+  <li><a href="https://github.com/bwilczek/watir_pump/issues">report an issue</a></li>
+  <li><a href="mailto:bwilczek@gmail.com">contact the author via email</a></li>
+</ul>
+
+  </div><a class="u-url" href="/blog/2018/10/07/introducing_watir_pump.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/blog/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">Bartek Wilczek: the defensive midfielder of web development</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">Bartek Wilczek: the defensive midfielder of web development</li><li><a class="u-email" href="mailto:bwilczek@gmail.com">bwilczek@gmail.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/bwilczek"><svg class="svg-icon"><use xlink:href="/blog/assets/minima-social-icons.svg#github"></use></svg> <span class="username">bwilczek</span></a></li><li><a href="https://www.twitter.com/bwilczek_eu"><svg class="svg-icon"><use xlink:href="/blog/assets/minima-social-icons.svg#twitter"></use></svg> <span class="username">bwilczek_eu</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>Some bits of code, Wrocław, travelling and other hobbies.</p>
+      </div>
+    </div>
+
+  </div>
+</footer>
+<link rel="stylesheet" href="">
+<script type="text/javascript" src="/blog/assets/js/jquery-3.5.1.min.js"></script>
+<script type="text/javascript" src="/blog/assets/js/slick.min.js"></script>
+<script type="text/javascript" src="/blog/assets/js/blog.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,665 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.2.0">Jekyll</generator><link href="https://bwilczek.github.io/blog/feed.xml" rel="self" type="application/atom+xml" /><link href="https://bwilczek.github.io/blog/" rel="alternate" type="text/html" /><updated>2024-11-12T11:09:06+00:00</updated><id>https://bwilczek.github.io/blog/feed.xml</id><title type="html">Bartek Wilczek: the defensive midfielder of web development</title><subtitle>Some bits of code, Wrocław, travelling and other hobbies.</subtitle><entry><title type="html">Stubbing HTTP communication in E2E test with Hoverfly</title><link href="https://bwilczek.github.io/blog/2024/10/16/http_communication_stubbing_in_e2e_tests.html" rel="alternate" type="text/html" title="Stubbing HTTP communication in E2E test with Hoverfly" /><published>2024-10-16T07:05:15+00:00</published><updated>2024-10-16T07:05:15+00:00</updated><id>https://bwilczek.github.io/blog/2024/10/16/http_communication_stubbing_in_e2e_tests</id><content type="html" xml:base="https://bwilczek.github.io/blog/2024/10/16/http_communication_stubbing_in_e2e_tests.html">&lt;p&gt;Stubbing out communication with external services is a common practice in automated testing. It brings various advantages, for example:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;reduced flakiness&lt;/li&gt;
+  &lt;li&gt;faster execution&lt;/li&gt;
+  &lt;li&gt;ability to test edge cases (network errors)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;It is pretty easy to stub requests to remote services in unit tests, where the test runner process is executing the code under test.
+There’s a variety of tools that hook into the HTTP client libraries and alter their behavior in runtime, making them an important tool
+in the tester’s tool belt. Ruby, Java, Python, Node, and other have their &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;VCR&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sinon&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;puffing-billy&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Betamax&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Talkback&lt;/code&gt;.
+None of these tools however has been designed to provide a technology agnostic solution for complete distributed app stack.&lt;/p&gt;
+
+&lt;p&gt;For E2E testing communication stubbing is not simple because the test runner lives in a different process
+then the application under test. And this makes changing the behavior of the running app in runtime impossible.
+Or at least very, very hacky and standing in the way of E2E testing paradigm.&lt;/p&gt;
+
+&lt;p&gt;Additionally the application under test can be multi-process itself: consider clustered HTTP server and a separate service
+for processing of background jobs. In order to provide consistent behavior of the whole stack all processes should be experiencing
+the same responses for the same requests. Tools listed in previous paragraph won’t help in this case.&lt;/p&gt;
+
+&lt;h2 id=&quot;hoverfly-enters-the-stage&quot;&gt;Hoverfly enters the stage&lt;/h2&gt;
+
+&lt;p&gt;The solution to this problem is making all the processes in the stack route their HTTP communication through a proxy server
+and let this proxy perform any manipulation on the responses, as required by the test scenario.&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://docs.hoverfly.io/en/latest/&quot;&gt;Hoverfly&lt;/a&gt; is (almost) ideal tool for this purpose.
+It hooks itself into the HTTP requests processing seamlessly, without needing to alter the applications under test.&lt;/p&gt;
+
+&lt;h2 id=&quot;settings-things-up&quot;&gt;Settings things up&lt;/h2&gt;
+
+&lt;p&gt;All applications involved in E2E test scenarios have to be configured to use an HTTP proxy server for external request they make.
+Setting this up can vary, depending on the libraries used.&lt;/p&gt;
+
+&lt;h1 id=&quot;starting-hoverfly&quot;&gt;Starting Hoverfly&lt;/h1&gt;
+
+&lt;p&gt;But first things first. Let’s start a local instance of Hoverfly, that the other services will use:&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;docker run &lt;span class=&quot;nt&quot;&gt;--name&lt;/span&gt; hoverfly &lt;span class=&quot;nt&quot;&gt;-d&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-p&lt;/span&gt; 8888:8888 &lt;span class=&quot;nt&quot;&gt;-p&lt;/span&gt; 8500:8500 spectolabs/hoverfly:latest
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It is important to know where services under test run. If they run in docker containers Hoverfly container should be
+created in the same network, and referred by name &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;hoverfly&lt;/code&gt;. If the services run on the host (locally) the correct address
+for Hoverfly service would be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;localhost&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;127.0.0.1&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;As one can see two ports are being exposed: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;8500&lt;/code&gt; for the actual proxy and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;8888&lt;/code&gt; for the admin interface and the REST API.&lt;/p&gt;
+
+&lt;h1 id=&quot;configuring-proxy-with-env-variables&quot;&gt;Configuring proxy with env variables&lt;/h1&gt;
+
+&lt;p&gt;In ideal scenario the desired configuration should be achieved without needing to change a single line of application’s code,
+using only environment variables. There’s an (informal) standard for proxy configuration, that involves three variables:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http_proxy&lt;/code&gt; - holds proxy URL to be used for HTTP requests&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;https_proxy&lt;/code&gt; - holds proxy URL to be used for HTTPS requests&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_proxy&lt;/code&gt; - holds a coma separated list of URLs that should not go through a proxy. Typically &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;localhost&lt;/code&gt; or other services from the same app stack.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;As stated before our instance of Hoverfly runs at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://hoverfly:8500&lt;/code&gt;.
+Then a typical set of variables for E2E test stack would be:&lt;/p&gt;
+
+&lt;div class=&quot;language-shell highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nb&quot;&gt;export &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;http_proxy&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;http://hoverfly:8500
+&lt;span class=&quot;nb&quot;&gt;export &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;https_proxy&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;http://hoverfly:8500
+&lt;span class=&quot;nb&quot;&gt;export &lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;no_proxy&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;localhost,127.0.0.1,hoverfly,db,web,search,other,services
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Most likely these would be declared in GitHub Action workflow, or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docker-compose.yml&lt;/code&gt;, or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;kubernetes&lt;/code&gt; manifests, or wherever the stack is started.&lt;/p&gt;
+
+&lt;h1 id=&quot;configuring-proxy-per-library&quot;&gt;Configuring proxy per library&lt;/h1&gt;
+
+&lt;p&gt;Some HTTP client libraries do not respect these env vars. If this is the case the configuration will have to be provided in the code.
+For example &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;node-fetch&lt;/code&gt; requires some tweaking:&lt;/p&gt;
+
+&lt;div class=&quot;language-javascript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;fetch&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;require&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;node-fetch&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;HttpsProxyAgent&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;require&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;https-proxy-agent&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;agent&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;HttpsProxyAgent&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;process&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;env&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;HTTPS_PROXY&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+&lt;span class=&quot;nx&quot;&gt;fetch&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;https://example.com&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;agent&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;etc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Fortunately, the changes are minimal and (assuming that apps under test are properly designed) should happen in just one place in the code.&lt;/p&gt;
+
+&lt;h1 id=&quot;configuring-ssl-certificate&quot;&gt;Configuring SSL certificate&lt;/h1&gt;
+
+&lt;p&gt;In order to support requests to HTTPS sites Hoverfly comes with a bundled &lt;a href=&quot;https://github.com/SpectoLabs/hoverfly/blob/master/core/cert.pem&quot;&gt;SSL certificate&lt;/a&gt;.
+However, as this is a testing tool, this certificate is self-signed, and needs to be marked as “trusted” before the applications
+using the proxy will attempt to connect to secure sites.&lt;/p&gt;
+
+&lt;p&gt;Similarly as with proxy URL this goal can be achieved in a way transparent to the apps’ code, by trusting the certificate on a global (OS) level.
+On &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;debian&lt;/code&gt; systems it can be done with:&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nb&quot;&gt;cp &lt;/span&gt;cert.pem /usr/local/share/ca-certificates/hoverfly.crt &lt;span class=&quot;o&quot;&gt;&amp;amp;&amp;amp;&lt;/span&gt; update-ca-certificates
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Not all apps however respect this approach. If this is the case with your HTTP client please refer to its documentation to find a proper solution.
+It shouldn’t be too hard though, as often the issue can be resolved with an environment variable. For example:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Python’s &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;requests&lt;/code&gt; package: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;REQUESTS_CA_BUNDLE=cert.pem&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;Node’s extra CA setting: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NODE_EXTRA_CA_CERTS=cert.pem&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;Curl’s extra CA setting: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CURL_CA_BUNDLE=cert.pem&lt;/code&gt; (it should respect system settings though)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;example-workflow&quot;&gt;Example workflow&lt;/h2&gt;
+
+&lt;p&gt;Once the applications are configured to use Hoverfly proxy the actual testing workflow can start.
+Before the tests can be executed the responses have to be prepared.
+In Hoverfly terms a collection of request/response pairs is called a &lt;a href=&quot;https://docs.hoverfly.io/en/latest/pages/keyconcepts/simulations/simulations.html&quot;&gt;Simulation&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;There are two ways of creating simulations.&lt;/p&gt;
+
+&lt;h1 id=&quot;recording-a-simulation&quot;&gt;Recording a simulation&lt;/h1&gt;
+
+&lt;p&gt;Hoverfly can work in several &lt;a href=&quot;https://docs.hoverfly.io/en/latest/pages/keyconcepts/modes/modes.html&quot;&gt;modes&lt;/a&gt;.
+For this article we care only about &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capture&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;simulate&lt;/code&gt; modes. First for recording real traffic,
+second for serving the pre-recorder responses, not allowing any connections to real systems.&lt;/p&gt;
+
+&lt;p&gt;The are several ways to set the mode to the required value. First is using the admin panel at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http://localhost:8888&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Another way is using CURL and REST API:&lt;/p&gt;
+
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;curl &lt;span class=&quot;nt&quot;&gt;-X&lt;/span&gt; PUT &lt;span class=&quot;nt&quot;&gt;-H&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Content-Type: application/json&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-d&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'{&quot;mode&quot;: &quot;capture&quot;}'&lt;/span&gt; http://localhost:8888/api/v2/hoverfly/mode
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The last way is calling the REST API from the code. The code examples in this article use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TypeScript&lt;/code&gt; and &lt;a href=&quot;https://www.npmjs.com/package/@bwilczek/hoverfly-client&quot;&gt;@bwilczek/hoverfly-client&lt;/a&gt; package.&lt;/p&gt;
+
+&lt;div class=&quot;language-typescript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;Client&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;@bwilczek/hoverfly-client&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;Client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;http://localhost:8888&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;setMode&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;mode&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;capture&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;After the mode has been set Hoverfly is ready to record the traffic going through it.
+It’s time to let the apps under test perform their requests and let Hoverfly record them.
+Typically app user (or acceptance tester, so most like you, dear reader) will just one the app UI and click through the functionality in question.&lt;/p&gt;
+
+&lt;p&gt;When the scenario is completed it’s time to save the recorded traffic to a file, so that it could be reused in the future.
+This can be achieved it two ways.&lt;/p&gt;
+
+&lt;p&gt;Using CURL and REST API:&lt;/p&gt;
+&lt;div class=&quot;language-sh highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;curl http://localhost:8888/api/v2/simulation &lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; simulation.json
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Or from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TypeScript&lt;/code&gt; code:&lt;/p&gt;
+&lt;div class=&quot;language-typescript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;getSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;saveSimulationToFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;simulation.json&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The saved &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;simulation.json&lt;/code&gt; file can now be edited in any text editor to remove any redundant data, simplify response body,
+or provide responses for specific edge case scenarios.&lt;/p&gt;
+
+&lt;h1 id=&quot;crafting-a-simulation-in-the-code&quot;&gt;Crafting a simulation in the code&lt;/h1&gt;
+
+&lt;p&gt;Another approach is crafting the simulation programmatically, in the code. Here’s an example:&lt;/p&gt;
+
+&lt;div class=&quot;language-typescript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; 
+  &lt;span class=&quot;nx&quot;&gt;buildSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;ResponseData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;RequestMatcher&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;saveSimulationToFile&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;@bwilczek/hoverfly-client&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;response&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;ResponseData&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;402&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;body&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;{&quot;result&quot;: &quot;error&quot;, &quot;message&quot;: &quot;Insufficient balance&quot;}&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;encodedBody&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;templated&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;RequestMatcher&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[{&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;matcher&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;exact&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;/api/invoices&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}],&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;destination&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[{&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;matcher&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;exact&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;payment.provider&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}],&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;pair&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;response&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;response&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;buildSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;pair&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;saveSimulationToFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;simulation.json&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;serving-responses-from-a-simulation&quot;&gt;Serving responses from a simulation&lt;/h1&gt;
+
+&lt;p&gt;Once the traffic is recorded in a simulation file it’s time to change Hoverfly mode to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;simulate&lt;/code&gt;
+and start using the pre-recorded responses instead of real services.&lt;/p&gt;
+
+&lt;p&gt;Changing mode is easy:&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# curl:
+curl -X PUT -H &quot;Content-Type: application/json&quot; -d '{&quot;mode&quot;: &quot;capture&quot;}' http://localhost:8888/api/v2/hoverfly/mode
+
+# TypeScript:
+await client.setMode({mode: 'simulate'})
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Uploading the simulation JSON isn’t hard as well:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# curl:
+curl -X PUT -H &quot;Content-Type: application/json&quot; -d @simulation.json http://localhost:8888/api/v2/simulation
+
+# TypeScript:
+await client.uploadSimulation(buildSimulationFromFile('simulation.json'))
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Obviously simulations crafted by hand can be uploaded without having to be saved to a JSON file first.&lt;/p&gt;
+&lt;div class=&quot;language-typescript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;buildSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;pair&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;uploadSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;sim&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;middleware-and-journal&quot;&gt;Middleware and Journal&lt;/h1&gt;
+
+&lt;p&gt;Hoverfly comes with two more handy tools that can provide more flexibility to the test framework.
+First one is &lt;a href=&quot;https://docs.hoverfly.io/en/latest/pages/keyconcepts/middleware.html&quot;&gt;middleware&lt;/a&gt;,
+a mechanism that can modify the responses dynamically, make requests to real systems, trigger callback webhooks
+or perform any logic that could be implemented inside a simple HTTP application.
+This topic is so broad and project specific that it goes far beyond the scope of this article.
+It’s being mentioned here so that you know that if there’s something more sophisticated that your
+stubbed communications needs to do, middleware can help.&lt;/p&gt;
+
+&lt;p&gt;The other concept is Journal, which is basically a registry of performed HTTP requests that went through Hoverfly.
+It’s essential for making assertions like &lt;em&gt;“Expect that payment provider has been queried for pending transactions”&lt;/em&gt;.
+More on this in the example below.&lt;/p&gt;
+
+&lt;h2 id=&quot;example-workflow-with-hoverfly-client&quot;&gt;Example workflow with hoverfly-client&lt;/h2&gt;
+
+&lt;p&gt;Let’s demonstrate the features of Hoverfly in an example &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;jest&lt;/code&gt; test:&lt;/p&gt;
+
+&lt;div class=&quot;language-typescript highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;describe&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;test&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;@jest/globals&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;buildSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;ResponseData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;RequestMatcher&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;saveSimulationToFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;Client&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;@bwilczek/hoverfly-client&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;
+
+&lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;Client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;http://hoverfly:8888&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;nx&quot;&gt;describe&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;Fetch invoice&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;beforeEach&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;async&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;purgeSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;setMode&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;mode&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;simulate&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;purgeJournal&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// upload some default requests/responses that should be always active, for example authenthication&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;uploadSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;buildSimulationFromFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;default_traffic.json&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+
+  &lt;span class=&quot;nx&quot;&gt;test&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;sufficient balance&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;async&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// append simulation for this scenario to the one already present in Hoverfly&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;appendSimulation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;buildSimulationFromFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;payment_sufficient_balance.json&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;// do some actions in the UI, that will make the app under test perform a request to payment provider&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;browser&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;submitPaymentButton&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;click&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;// assert that the backend really performed a request to the payment provider&lt;/span&gt;
+    &lt;span class=&quot;kd&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;paymentsJournal&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;await&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;searchJournal&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;destination&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[{&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;matcher&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;exact&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;payment.provider&lt;/span&gt;&lt;span class=&quot;dl&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}]}})&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;paymentsJournal&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;journal&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;length&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;toBe&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;conclusions&quot;&gt;Conclusions&lt;/h2&gt;
+
+&lt;p&gt;Stubbing HTTP communication in a distributed, multi-process system is not only possible, but it’s also not that hard.
+HTTP proxy is the right tool for this purpose, and Hoverfly provides just the right features:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Flexible request matchers&lt;/li&gt;
+  &lt;li&gt;Middleware for custom logic&lt;/li&gt;
+  &lt;li&gt;Support for SSL&lt;/li&gt;
+  &lt;li&gt;Journal for tracking of the processed requests&lt;/li&gt;
+  &lt;li&gt;JSON REST API for easy configuration&lt;/li&gt;
+  &lt;li&gt;Simulating latency and outages&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;As demonstrated in this article, introduction of Hoverfly to any app stack is easy.
+With minimal or no changes to the code it opens the apps for testing of
+use cases not achievable with requests to real external services.&lt;/p&gt;
+
+&lt;h2 id=&quot;caveats&quot;&gt;Caveats&lt;/h2&gt;
+
+&lt;p&gt;As great as Hoverfly is it comes with a few caveats:&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;destination&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_proxy&lt;/code&gt; and direct requests&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Switching Hoverfly on and off dynamically for certain URLs is hard. &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_proxy&lt;/code&gt; variable provides a static list,
+while &lt;a href=&quot;https://docs.hoverfly.io/en/latest/pages/keyconcepts/destinationfiltering.html&quot;&gt;destination&lt;/a&gt;
+filtering relies on a whitelist regular expression.
+Implementation of a test suite that runs some scenarios against real payment provider and some against a simulated one
+is tricky and requires some fancy logic in a stateful middleware. It’s doable though.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;not every lib respects &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;http_proxy&lt;/code&gt;&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;As described above: some HTTP libraries won’t respect the standard ENV variables
+and require changes to client initialization.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;not every lib respects default location of SSL certificates&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;As described above: some HTTP libraries won’t trust all system’s certificates
+and require changes to client initialization.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;default certificate does not work well with time traveling&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Scenarios that involve time traveling might not work as expected, as the SSL certificate shipped 
+with Hoverfly has more “present” validity period. A custom certificate, valid +/- 30 years from now
+could be generated and used instead.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;one, huge simulation, cannot upload/delete single pairs&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;REST API operates (upload/download) on a whole simulation - not individual request/response pairs.
+Adding or subtracting responses requires some extra coding, fortunately it can be abstracted away in a
+client library, like the one used in the examples in this article.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;JSON format of simulations&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Pretty often request or response payload is also in JSON format, what makes manual changes to the simulation files hard.
+JSON does not support line splitting and the JSON content is at easiest case escaped and 
+stored in a very long line. In a harder case it can be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gzip&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;brotli&lt;/code&gt; compressed and then serialized in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;base64&lt;/code&gt;.
+Of course editing such payload is still possible, but a bit harder then if a different format was used.&lt;/p&gt;</content><author><name></name></author><summary type="html">Building a robust solution for faking HTTP communication in distributed E2E testing stack</summary></entry><entry><title type="html">Practical approach to software complexity</title><link href="https://bwilczek.github.io/blog/2024/10/15/complexity.html" rel="alternate" type="text/html" title="Practical approach to software complexity" /><published>2024-10-15T07:05:15+00:00</published><updated>2024-10-15T07:05:15+00:00</updated><id>https://bwilczek.github.io/blog/2024/10/15/complexity</id><content type="html" xml:base="https://bwilczek.github.io/blog/2024/10/15/complexity.html">&lt;p&gt;As software engineers we intuitively know what is software complexity and what impact it makes on the long term maintainability. (In case you didn’t know: the smaller the complexity the easier the code is to maintain).&lt;/p&gt;
+
+&lt;p&gt;In long living projects complexity tends to grow over time, and that’s normal. It can be reduced (by certain amount) by refactoring, tooling upgrade
+or other kinds of redesign.
+Our (engineers’) problem is that such initiatives do not bring immediate business value to the stakeholders.
+Therefore it could be hard to convince them that they should invest team’s effort into such projects.&lt;/p&gt;
+
+&lt;p&gt;In this post I’d like to provide stakeholder-friendly definition of complexity and also explain why keeping it under control is good not only for engineers’ happiness, but also for business’s sustainability.&lt;/p&gt;
+
+&lt;h1 id=&quot;what-is-complexity&quot;&gt;What is complexity?&lt;/h1&gt;
+
+&lt;p&gt;Let’s use the image below to explain what complexity is.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/blog/assets/complexity.png&quot; alt=&quot;Complexity as wiring&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Complexity is a metric describing how difficult to change the software is.&lt;/p&gt;
+
+&lt;p&gt;It consists of two components:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;essential complexity&lt;/strong&gt; - originates from the business rules. The very core of the system. Cannot be reduced without sacrificing the functionality.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;accidental complexity&lt;/strong&gt; - originates from the implementation. Brings no business value.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The smaller accidental complexity overhead the better.&lt;/p&gt;
+
+&lt;p&gt;Now let’s go back to the picture above.&lt;/p&gt;
+
+&lt;p&gt;Think of the clean wiring as the essential complexity with very little accidental complexity added.
+The system is not simple, because the domain is not simple.
+It looks easy to comprehend and change though, as the non-domain overhead is minimal.&lt;/p&gt;
+
+&lt;p&gt;Now think of the messy wiring as the essential complexity with a lot of accidental complexity on top of it.
+It does the same functionality as the first one, but is much harder to comprehend and change.&lt;/p&gt;
+
+&lt;p&gt;Whenever engineers say that certain initiative will reduce the complexity they mean removing the obsolete wires and simplifying the layout of the essential ones.&lt;/p&gt;
+
+&lt;h1 id=&quot;where-does-the-accidental-complexity-come-from&quot;&gt;Where does the accidental complexity come from?&lt;/h1&gt;
+
+&lt;p&gt;Accidental complexity can be added to the software in two ways:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;unintentionally&lt;/strong&gt;, when the engineering team does not have the experience with the
+technical solutions required to complete certain task. This happens despite the best
+efforts and good will displayed by the team. It can be mitigated by involving people with
+more experience early in the solution design. Reaching out to architects should be a
+good starting point.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;intentionally&lt;/strong&gt;, when certain shortcuts are being made in order to achieve a short term
+goal. Can be mitigated by being more flexible with deadlines. When in doubt refer to the
+messy wiring picture and ask yourself whether adding a random, loose wire that can
+make one project go live a bit earlier is beneficial for other projects in the long run.
+Spoiler alert: it is not :)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&quot;how-to-measure-the-complexity&quot;&gt;How to measure the complexity?&lt;/h1&gt;
+
+&lt;p&gt;This usually depends on the programming language used in the project. Different languages and different tools use different formulas,
+but as long we we select one of them and stick to it we can track how the complexity changes over time.&lt;/p&gt;
+
+&lt;p&gt;Taking actual measurements is pretty easy and usually limited to execution of a single command. In &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ruby&lt;/code&gt; universe that would be &lt;a href=&quot;https://github.com/seattlerb/flog&quot;&gt;flog&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Pseudocode for the calculation of an impact made on complexity by a given commit ABC could look like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-shell highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c&quot;&gt;# checkout commit prior to commit in question&lt;/span&gt;
+git checkout ABC^
+
+&lt;span class=&quot;c&quot;&gt;# compute complexity for that commit&lt;/span&gt;
+complexity_before &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;sb&quot;&gt;`&lt;/span&gt;parse output from flog&lt;span class=&quot;sb&quot;&gt;`&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# checkout the commit in question&lt;/span&gt;
+git checkout ABC
+
+&lt;span class=&quot;c&quot;&gt;# compute complexity for it&lt;/span&gt;
+complexity_after &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;sb&quot;&gt;`&lt;/span&gt;parse output from flog&lt;span class=&quot;sb&quot;&gt;`&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# calculate the impact&lt;/span&gt;
+print &lt;span class=&quot;s2&quot;&gt;&quot;Commit ABC has changed overall complexity by #{complexity_after - complexity_before}&quot;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;To assess the impact made by the whole project simply run this formula for every commit associated with the project.&lt;/p&gt;
+
+&lt;h1 id=&quot;why-we-should-measure-it&quot;&gt;Why we should measure it?&lt;/h1&gt;
+
+&lt;p&gt;Because &lt;em&gt;you cannot manage what you cannot measure&lt;/em&gt;. Prior to giving green light to a potential refactoring project
+(with no direct business value associated) stakeholders would need a metric that could be used to assess the project impact.
+They will not be willing to invest resources into vague promises that &lt;em&gt;this project will make the code better&lt;/em&gt;.
+However after they have been familiarized with the notion that high complexity is bad for long-term maintainability they could be more eager
+on investing into a project that will e.g. &lt;em&gt;reduce the complexity by 3%&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;After the project is approved and completed it is worth to assess the long term impact it made on other, more common metrics:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;Team velocity/capacity&lt;/strong&gt; - it should increase as changing less complex code is easier, giving more time to implement new features.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Infrastructure cost&lt;/strong&gt; - it should decrease as less complex code requires less resources to run on production and CI environments.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Engineering team satisfaction&lt;/strong&gt; - it should increase for two reasons:
+    &lt;ul&gt;
+      &lt;li&gt;engineers love making code better and letting them work on a refactoring project makes them happy&lt;/li&gt;
+      &lt;li&gt;engineers hate working with hacky, overcomplicated code. Making the code more elegant heals that pain&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&quot;summary&quot;&gt;Summary&lt;/h1&gt;
+
+&lt;p&gt;Whenever technical projects (refactoring, tooling upgrades) face resistance from the stakeholders
+the metaphor of reducing complexity could convince them to reassess the priorities.
+It’s like reducing the &lt;em&gt;fixed costs&lt;/em&gt;, or other &lt;em&gt;liabilities&lt;/em&gt;: frees up the &lt;em&gt;resources&lt;/em&gt; to be allocated on actual development.
+It’s measurable, traceable, and easy to introduce to the development process.&lt;/p&gt;</content><author><name></name></author><summary type="html">A few thoughs about software complexity and why should it matter to the business people.</summary></entry><entry><title type="html">Introducing WatirPump</title><link href="https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html" rel="alternate" type="text/html" title="Introducing WatirPump" /><published>2018-10-07T07:05:15+00:00</published><updated>2018-10-07T07:05:15+00:00</updated><id>https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump</id><content type="html" xml:base="https://bwilczek.github.io/blog/2018/10/07/introducing_watir_pump.html">&lt;p&gt;So one could ask: “Why yet another PageObject library?”. After all, there are some very decent gems out there already. This is true. Each of the existing libraries offers certain unique features, but none of them has all. Well, WatirPump - the new kid on the block, has the ambition to make an exception. Let’s take a look at it and find out.&lt;/p&gt;
+
+&lt;h1 id=&quot;introduction&quot;&gt;Introduction&lt;/h1&gt;
+&lt;p&gt;It’s never easy describing code using a natural language. Especially if it’s a foreign one ;) For the in-depth explanation about what &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WatirPump&lt;/code&gt; can do and how it does it I highly recommend reading its &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md&quot;&gt;README&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;There is also a series of specs that demonstrate certain features of the library in a form of a &lt;a href=&quot;https://github.com/bwilczek/watir_pump_tutorial&quot;&gt;tutorial&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;For this article, let’s try to use as little English as possible. Lets let the code speak for itself.&lt;/p&gt;
+
+&lt;h1 id=&quot;example-spec&quot;&gt;Example spec&lt;/h1&gt;
+
+&lt;p&gt;Let’s test a &lt;a href=&quot;https://bwilczek.github.io/watir_pump_tutorial/todo_lists.html&quot;&gt;page with multiple ToDo lists&lt;/a&gt;. This example scenario checks if addition and removal of list items work properly.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/blog/assets/watir_pump/todo_lists.png&quot; alt=&quot;Example page with multiple ToDo lists&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Having properly modeled the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ToDoListsPage&lt;/code&gt; class the spec will look like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;no&quot;&gt;RSpec&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;describe&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ToDoListsPage&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Adds and removes items'&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+    &lt;span class=&quot;no&quot;&gt;ToDoListsPage&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;
+
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Work'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Read RubyWeekly'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Work'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Read RubyWeekly'&lt;/span&gt;
+
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Bread'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;remove&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;not_to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Bread'&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Pretty neat, right?&lt;/p&gt;
+
+&lt;p&gt;Let’s dig into the internals and learn how to build such a nice page API with WatirPump.&lt;/p&gt;
+
+&lt;h1 id=&quot;todolist&quot;&gt;ToDoList&lt;/h1&gt;
+
+&lt;p&gt;As we look at the page it is clear that the first candidate to be extracted into a reusable component is the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ToDoList&lt;/code&gt;. It contains several elements:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;a title&lt;/li&gt;
+  &lt;li&gt;a text field for a name of a new item&lt;/li&gt;
+  &lt;li&gt;a button that adds the new item of given name&lt;/li&gt;
+  &lt;li&gt;a list of the existing list items&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Let’s try to represent this component in a code:&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;ToDoList&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;WatirPump&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Component&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;# Let's use some WatirPump class macros (explained below)&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;div_reader&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'title'&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;text_field_writer&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:item_name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'new_item'&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;button_clicker&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:submit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'add'&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;components&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:items&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ToDoListItem&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:lis&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;query&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:values&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;items&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;map&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:label&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+  &lt;span class=&quot;c1&quot;&gt;# and some extra methods to make the spec look more natural&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;[]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;label&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;items&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;find&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;label&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;label&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item_name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;fill_form!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;item_name: &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item_name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;include?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;nil?&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Looks intuitive, however, there are some concepts that might require a few words of explanation.&lt;/p&gt;
+
+&lt;h4 id=&quot;concept-0-class-macros-some-would-call-it-a-dsl&quot;&gt;Concept 0: class macros (some would call it a DSL)&lt;/h4&gt;
+
+&lt;p&gt;Classes that inherit from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WatirPump::Page&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WatirPump::Component&lt;/code&gt; gain access to a set of powerful class macros that (behind the scenes) generate methods which interact with the webpage. For example, each DOM element can be declared with its own class macro. Just like in plain watir code.&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nb&quot;&gt;p&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:summary&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'summary'&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# is a shorthand for:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;summary&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;p&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'summary'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;See WatirPump &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md#elements&quot;&gt;docs&lt;/a&gt; to learn more about how one can declare page elements (don’t forget to check out how lambdas could help here). While you read the docs please also grep for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;root vs browser&lt;/code&gt; to learn the difference.&lt;/p&gt;
+
+&lt;h4 id=&quot;concept-1-element-action-macros-reader-writer-clicker&quot;&gt;Concept 1: element action macros: reader, writer, clicker&lt;/h4&gt;
+
+&lt;p&gt;It happens quite often, that there is no point in declaring a “plain” HTML element in the page class. After all an abstract DOM node is rather useless from the perspective of a functional test API. What matters, however, is what the user could do with it. And the user usually needs to perform a certain action:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;read the value of the element&lt;/li&gt;
+  &lt;li&gt;write a new value to the element&lt;/li&gt;
+  &lt;li&gt;click the element&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This is where element action class macros come in: they generate methods that perform actions on the element with given locator.&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;div_reader&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'title'&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# is a shorthand for:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;title&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;div&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'title'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;text&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;text_field_writer&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:item_name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'new_item'&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# is a shorthand for:&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;item_name&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# mind the '=' !&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;text_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'new_item'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;button_clicker&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:submit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'add'&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# is a shorthand for&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;submit&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;button&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'add'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;click&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;See the &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md#element-action-macros-1&quot;&gt;documentation about element action macros&lt;/a&gt; for more details.&lt;/p&gt;
+
+&lt;h4 id=&quot;concept-2-components-class-macro&quot;&gt;Concept 2: components class macro&lt;/h4&gt;
+
+&lt;p&gt;Declares a collection of components of given class that are located within the current component using the given locator.&lt;/p&gt;
+
+&lt;p&gt;The line below declares a ToDoListItem component instance at every li element&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;components&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:items&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ToDoListItem&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:lis&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;concept-3-fill_form&quot;&gt;Concept 3: fill_form!&lt;/h4&gt;
+
+&lt;p&gt;Instance method &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_form&lt;/code&gt; is a fast way to invoke all writers declared for the given component. In our case there is only one: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;item_name=&lt;/code&gt;. &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_form&lt;/code&gt; accepts a hash of writer method names and values for them. If our component contains a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;submit&lt;/code&gt; method &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_form!&lt;/code&gt; (notice the !) will try to invoke it after all writers are executed.&lt;/p&gt;
+
+&lt;p&gt;So to sum it up: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_form!(item_name: 'Pineapple')&lt;/code&gt; will do &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;self.item_name='Pineapple' ; submit&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;The more writers the component has, the more work can &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_form&lt;/code&gt; do for us.&lt;/p&gt;
+
+&lt;p&gt;For more information about form helpers please &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md#form-helpers&quot;&gt;see the docs&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h4 id=&quot;the-extra-methods-add--include&quot;&gt;The extra methods: add, [], include?&lt;/h4&gt;
+
+&lt;p&gt;These are rather self-explanatory. They are here to let us write more expressive code. Like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;todo_list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;todo_list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;include?&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;todo_list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;remove&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;concept-4-query-macro&quot;&gt;Concept 4: query macro&lt;/h4&gt;
+
+&lt;p&gt;There is one more concept that has been employed in this example. It’s a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;query&lt;/code&gt; class macro and more information about it can be found &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md#query-class-macro&quot;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h1 id=&quot;todolistitem&quot;&gt;ToDoListItem&lt;/h1&gt;
+
+&lt;p&gt;An item consists of two elements:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;a label&lt;/li&gt;
+  &lt;li&gt;a link to remove the item&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;When represented as a code they would look like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;ToDoListItem&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;WatirPump&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Component&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;link_clicker&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:remove&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'rm'&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;span_reader&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:label&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'name'&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Both of the macros used here have been already discussed.&lt;/p&gt;
+
+&lt;h1 id=&quot;todolistspage&quot;&gt;ToDoListsPage&lt;/h1&gt;
+
+&lt;p&gt;The highest object in the model hierarchy is the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ToDoListsPage&lt;/code&gt;. Its declaration doesn’t differ much from the declaration of a component. The main change is the presence of the required &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;uri&lt;/code&gt; macro invocation.&lt;/p&gt;
+
+&lt;p&gt;Another new contstruct (macro) presented in the listing below is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decorate&lt;/code&gt;. It is used to, well, decorate given method with some additional behavior. Here, the value returned by method &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;todo_lists&lt;/code&gt; will be wrapped by an instance of a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CollectionIndexedByTitle&lt;/code&gt; class. It is required to replace the default behavior of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;[]&lt;/code&gt; operator: from integer based (like in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Array&lt;/code&gt;) to  string based (like in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Hash&lt;/code&gt;). This will provide us with access to certain &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ToDoLists&lt;/code&gt; by their title.&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;ToDoListPage&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;WatirPump&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Page&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;uri&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'/todo_lists.html'&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;components&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ToDoList&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;divs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;role: &lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'todo_list'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;decorate&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;CollectionIndexedByTitle&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;collectionindexedbytitle&quot;&gt;CollectionIndexedByTitle&lt;/h1&gt;
+
+&lt;p&gt;Decorator class for the collection of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ToDoLists&lt;/code&gt;. As described above, all it does is overriding the default behavior of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;[]&lt;/code&gt; method.&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;CollectionIndexedByTitle&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;WatirPump&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;ComponentCollection&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;[]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;find&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;l&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;l&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;title&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;title&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;execution-with-rspec&quot;&gt;Execution with rspec&lt;/h1&gt;
+
+&lt;p&gt;Having the page and component classes in place let’s take another look at API exposed to rspec:&lt;/p&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;no&quot;&gt;RSpec&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;describe&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ToDoListsPage&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Adds and removes items'&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# open method navigates to the page&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# then executes the provided block in the scope of page class singleton instance:&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# e.g. todo_lists['A'] == ToDoListPage.instance.todo_lists['A']&lt;/span&gt;
+    &lt;span class=&quot;no&quot;&gt;ToDoListsPage&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+      &lt;span class=&quot;c1&quot;&gt;# todo_lists collection with decoration supports indexing with title&lt;/span&gt;
+      &lt;span class=&quot;c1&quot;&gt;# add method is invoked on a ToDoList with title 'Groceries'&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+      &lt;span class=&quot;c1&quot;&gt;# 'include?' method defined in ToDoList class&lt;/span&gt;
+      &lt;span class=&quot;c1&quot;&gt;# is used by the rspec matcher 'include'&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Pineapple'&lt;/span&gt;
+
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Work'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Read RubyWeekly'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Work'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Read RubyWeekly'&lt;/span&gt;
+
+      &lt;span class=&quot;c1&quot;&gt;# ToDoList supports '[]' method that is used below&lt;/span&gt;
+      &lt;span class=&quot;c1&quot;&gt;# to access ToDoListItem by its label&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Bread'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;remove&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;expect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;todo_lists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'Groceries'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]).&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;not_to&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Bread'&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;summary&quot;&gt;Summary&lt;/h1&gt;
+
+&lt;p&gt;This article showed only a few of the features that WatirPump offers to build maintainable, reusable and elegant Page Object models. For a complete guide please refer to projects &lt;a href=&quot;https://github.com/bwilczek/watir_pump/blob/master/README.md&quot;&gt;README&lt;/a&gt; and a &lt;a href=&quot;https://github.com/bwilczek/watir_pump_tutorial&quot;&gt;tutorial&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;In case of ideas for improvement, found bugs or any other questions don’t hesitate to:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/bwilczek/watir_pump/pulls&quot;&gt;create a pull request&lt;/a&gt; with your feature&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/bwilczek/watir_pump/issues&quot;&gt;report an issue&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;mailto:bwilczek@gmail.com&quot;&gt;contact the author via email&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><summary type="html">Proudly presenting a new, fresh look at Page Object Model for Ruby and Watir</summary></entry><entry><title type="html">Hello Jekyll, goodbye WordPress</title><link href="https://bwilczek.github.io/blog/2018/10/07/blog_migration.html" rel="alternate" type="text/html" title="Hello Jekyll, goodbye WordPress" /><published>2018-10-07T06:05:15+00:00</published><updated>2018-10-07T06:05:15+00:00</updated><id>https://bwilczek.github.io/blog/2018/10/07/blog_migration</id><content type="html" xml:base="https://bwilczek.github.io/blog/2018/10/07/blog_migration.html">&lt;p&gt;The previous, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WordPress&lt;/code&gt; based, instance of this blog did not survive the server maintenance.
+Most of the content has been migrated here, to GitHub Pages. Sorry for the inconvenience.&lt;/p&gt;</content><author><name></name></author><summary type="html">A few words about certain problems with WordPress blog maintenance, and hopes for brighter future with Jekyll.</summary></entry></feed>
